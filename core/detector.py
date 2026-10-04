@@ -60,16 +60,20 @@ def candidate_roots(manual_path: str | Path | None = None) -> list[Path]:
             else:
                 paths.extend((base / "LDPlayer", base / "LDPlayer9"))
 
-    paths.extend(
-        (
-            Path(r"C:\LDPlayer"),
-            Path(r"C:\LDPlayer9"),
-            Path(r"C:\Program Files\LDPlayer"),
-            Path(r"C:\Program Files\LDPlayer9"),
-            Path(r"C:\Program Files (x86)\LDPlayer"),
-            Path(r"C:\Program Files (x86)\LDPlayer9"),
+    for drive in ("C", "D", "E", "F", "G", "H", "I", "J"):
+        drive_root = Path(f"{drive}:\\")
+        if not drive_root.exists():
+            continue
+        paths.extend(
+            (
+                drive_root / "LDPlayer",
+                drive_root / "LDPlayer9",
+                drive_root / "Program Files" / "LDPlayer",
+                drive_root / "Program Files" / "LDPlayer9",
+                drive_root / "Program Files (x86)" / "LDPlayer",
+                drive_root / "Program Files (x86)" / "LDPlayer9",
+            )
         )
-    )
     paths.extend(_registry_candidates())
 
     unique: list[Path] = []

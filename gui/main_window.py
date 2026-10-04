@@ -346,8 +346,8 @@ class MainWindow(QMainWindow):
             self._show_error("ADB chưa được cấu hình.")
             return
         def done(devices: list[Any]) -> None:
-            self.adb_panel.set_devices(devices)
-            self.packages_panel.set_devices(devices)
+            self.adb_panel.set_devices(devices, self.instances)
+            self.packages_panel.set_devices(devices, self.instances)
 
         self._run_async("Đang đọc thiết bị ADB…", self.adb.devices, done)
 

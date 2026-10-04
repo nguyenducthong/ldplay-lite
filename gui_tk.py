@@ -571,8 +571,7 @@ class CompatApp(tk.Tk):
         old_adb_serial = self._selected_serial(self.adb_device)
         old_package_serial = self._selected_serial(self.package_device)
         all_instances = sorted(self.instances, key=lambda item: item.index)
-        running = [item for item in all_instances if item.running]
-        by_index = {item.index: item for item in running}
+        by_index = {item.index: item for item in all_instances}
         assigned: dict[str, Instance] = {}
         used_indices: set[int] = set()
 
@@ -583,35 +582,27 @@ class CompatApp(tk.Tk):
                 assigned[device.serial] = instance
                 used_indices.add(instance.index)
 
-        remaining_instances = [item for item in running if item.index not in used_indices]
+        remaining_instances = [item for item in all_instances if item.index not in used_indices]
         remaining_devices = [device for device in self.adb_devices if device.serial not in assigned]
         for device, instance in zip(remaining_devices, remaining_instances):
             assigned[device.serial] = instance
-
-        name_counts: dict[str, int] = {}
-        for instance in all_instances:
-            name_counts[instance.name] = name_counts.get(instance.name, 0) + 1
+            used_indices.add(instance.index)
 
         choices: list[str] = []
         mapping: dict[str, str] = {}
-        serial_by_index = {instance.index: serial for serial, instance in assigned.items()}
-        for instance in all_instances:
-            label = instance.name if name_counts[instance.name] == 1 else f"{instance.name} · ID {instance.index}"
-            serial = serial_by_index.get(instance.index, "")
-            if not instance.running:
-                label = f"{label} · Đang tắt"
-            elif not serial:
-                label = f"{label} · Chưa kết nối ADB"
-            choices.append(label)
-            mapping[label] = serial
-
-        unassigned_devices = [device for device in self.adb_devices if device.serial not in assigned]
-        for position, device in enumerate(unassigned_devices, start=1):
-            label = f"Thiết bị ADB {position}"
-            while label in mapping:
-                label = f"{label} · {position}"
+        for device in self.adb_devices:
+            instance = assigned.get(device.serial)
+            label = f"{instance.name} ({device.serial})" if instance else device.serial
             choices.append(label)
             mapping[label] = device.serial
+            if instance:
+                mapping[instance.name] = device.serial
+
+        unconnected_instances = [item for item in all_instances if item.index not in used_indices]
+        for instance in unconnected_instances:
+            label = f"{instance.name} · Đang tắt"
+            choices.append(label)
+            mapping[label] = ""
 
         self.device_serials_by_name = mapping
         self.adb_combo["values"] = choices

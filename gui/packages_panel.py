@@ -17,7 +17,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from core.adb import ADBDevice
+from core.adb import ADBDevice, ldplayer_index_from_serial
+from core.instance import Instance
 from core.packages import AndroidPackage
 
 
@@ -103,11 +104,15 @@ class PackagesPanel(QWidget):
     def current_serial(self) -> str:
         return str(self.devices.currentData() or "")
 
-    def set_devices(self, devices: list[ADBDevice]) -> None:
+    def set_devices(self, devices: list[ADBDevice], instances: list[Instance] | None = None) -> None:
         previous = self.current_serial()
         self.devices.clear()
+        by_index = {item.index: item for item in (instances or [])}
         for device in devices:
-            self.devices.addItem(f"{device.serial}  ·  {device.state}", device.serial)
+            index = ldplayer_index_from_serial(device.serial)
+            instance = by_index.get(index) if index is not None else None
+            label = f"{instance.name} ({device.serial})" if instance else f"{device.serial}  ·  {device.state}"
+            self.devices.addItem(label, device.serial)
         index = self.devices.findData(previous)
         if index >= 0:
             self.devices.setCurrentIndex(index)
