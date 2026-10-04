@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ldplayer-lite-manager"
+version = "0.1.0"
+description = "Windows GUI and CLI for safely managing LDPlayer instances"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = ["PySide6>=6.7,<7"]
+
+[project.scripts]
+ldlite = "cli:main"
+
+[tool.setuptools]
+py-modules = ["main", "cli"]
+
+[tool.setuptools.packages.find]
+include = ["core*", "gui*", "utils*", "automation*"]

@@ -1,0 +1,38 @@
+{
+  "Performance": {
+    "cpu": 4,
+    "ram": 4096,
+    "resolution": "720x1280",
+    "dpi": 240,
+    "fps": 60,
+    "animation": true,
+    "audio": true
+  },
+  "Balanced": {
+    "cpu": 2,
+    "ram": 2048,
+    "resolution": "720x1280",
+    "dpi": 240,
+    "fps": 30,
+    "animation": false,
+    "audio": true
+  },
+  "Lite": {
+    "cpu": 1,
+    "ram": 512,
+    "resolution": "540x960",
+    "dpi": 160,
+    "fps": 20,
+    "animation": false,
+    "audio": false
+  },
+  "Ultra Lite": {
+    "cpu": 1,
+    "ram": 512,
+    "resolution": "600x800",
+    "dpi": 160,
+    "fps": 15,
+    "animation": false,
+    "audio": false
+  }
+}

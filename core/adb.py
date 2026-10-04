@@ -1,0 +1,87 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime
+import logging
+from pathlib import Path
+
+from utils.process import CommandResult, run_binary, run_command
+from utils.system import screenshots_dir
+
+
+@dataclass(slots=True, frozen=True)
+class ADBDevice:
+    serial: str
+    state: str
+    details: str = ""
+
+
+def parse_devices(output: str) -> list[ADBDevice]:
+    devices: list[ADBDevice] = []
+    for line in output.splitlines():
+        line = line.strip()
+        if not line or line.startswith("List of devices") or line.startswith("*"):
+            continue
+        parts = line.split(maxsplit=2)
+        if len(parts) >= 2:
+            devices.append(ADBDevice(parts[0], parts[1], parts[2] if len(parts) > 2 else ""))
+    return devices
+
+
+class ADBManager:
+    def __init__(self, adb_path: str | Path, *, timeout: int = 30):
+        self.path = Path(adb_path)
+        self.timeout = timeout
+        self.logger = logging.getLogger("ldlite")
+
+    def _run(self, *args: str, timeout: int | None = None) -> CommandResult:
+        self.logger.info("ADB: %s", " ".join(args))
+        return run_command((self.path, *args), timeout=timeout or self.timeout)
+
+    def devices(self) -> list[ADBDevice]:
+        return parse_devices(self._run("devices", "-l").stdout)
+
+    def connect(self, endpoint: str) -> str:
+        return self._run("connect", endpoint).stdout.strip()
+
+    def disconnect(self, endpoint: str | None = None) -> str:
+        args = ("disconnect", endpoint) if endpoint else ("disconnect",)
+        return self._run(*args).stdout.strip()
+
+    def shell(self, serial: str, command: str) -> str:
+        clean = command.strip()
+        if clean.lower().startswith("adb shell "):
+            clean = clean[10:].strip()
+        if not clean:
+            raise ValueError("Lệnh shell không được để trống.")
+        return self._run("-s", serial, "shell", clean).stdout
+
+    def install(self, serial: str, apk: str | Path) -> str:
+        return self._run("-s", serial, "install", "-r", str(apk), timeout=180).stdout
+
+    def uninstall(self, serial: str, package: str) -> str:
+        return self._run("-s", serial, "uninstall", package).stdout
+
+    def push(self, serial: str, source: str | Path, destination: str) -> str:
+        return self._run("-s", serial, "push", str(source), destination, timeout=120).stdout
+
+    def pull(self, serial: str, source: str, destination: str | Path) -> str:
+        return self._run("-s", serial, "pull", source, str(destination), timeout=120).stdout
+
+    def reboot(self, serial: str) -> None:
+        self._run("-s", serial, "reboot")
+
+    def screenshot(self, serial: str, destination: str | Path | None = None) -> Path:
+        output = Path(destination) if destination else screenshots_dir() / (
+            f"{serial.replace(':', '_')}_{datetime.now():%Y%m%d_%H%M%S}.png"
+        )
+        output.parent.mkdir(parents=True, exist_ok=True)
+        image = run_binary(
+            (self.path, "-s", serial, "exec-out", "screencap", "-p"),
+            timeout=self.timeout,
+        )
+        if not image.startswith(b"\x89PNG"):
+            raise RuntimeError("ADB không trả về ảnh PNG hợp lệ.")
+        output.write_bytes(image)
+        self.logger.info("Đã lưu ảnh: %s", output)
+        return output

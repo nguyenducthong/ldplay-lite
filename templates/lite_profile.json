@@ -1,0 +1,9 @@
+{
+  "cpu": 1,
+  "ram": 512,
+  "resolution": "540x960",
+  "dpi": 160,
+  "fps": 20,
+  "animation": false,
+  "audio": false
+}
