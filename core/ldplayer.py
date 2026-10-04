@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 import time
@@ -20,7 +21,43 @@ class LDPlayerConsole:
         return run_command((self.path, *args), timeout=timeout or self.timeout)
 
     def list_instances(self) -> list[Instance]:
-        return parse_list2(self._run("list2").stdout)
+        console_instances = parse_list2(self._run("list2").stdout)
+        config_instances = self._list_instances_from_config()
+        merged = {item.index: item for item in config_instances}
+        merged.update({item.index: item for item in console_instances})
+        instances = sorted(merged.values(), key=lambda item: item.index)
+        self.logger.info(
+            "LDPlayer instances: config=%d, list2=%d, merged=%d",
+            len(config_instances),
+            len(console_instances),
+            len(instances),
+        )
+        return instances
+
+    def _list_instances_from_config(self) -> list[Instance]:
+        """Read every LDPlayer VM config because some list2 builds omit stopped VMs."""
+        config_dir = self.path.parent / "vms" / "config"
+        if not config_dir.is_dir():
+            return []
+
+        instances: list[Instance] = []
+        for config_path in config_dir.glob("leidian*.config"):
+            suffix = config_path.stem.removeprefix("leidian")
+            if not suffix.isdigit():
+                continue
+            index = int(suffix)
+            name = f"LDPlayer-{index}"
+            try:
+                data = json.loads(config_path.read_text(encoding="utf-8-sig"))
+                status_settings = data.get("statusSettings")
+                if isinstance(status_settings, dict):
+                    name = str(status_settings.get("playerName") or name)
+                else:
+                    name = str(data.get("statusSettings.playerName") or name)
+            except (OSError, ValueError, TypeError):
+                self.logger.warning("Không đọc được cấu hình LDPlayer: %s", config_path)
+            instances.append(Instance(index=index, name=name, running=False))
+        return sorted(instances, key=lambda item: item.index)
 
     def start(self, index: int) -> None:
         self._run("launch", "--index", str(index))

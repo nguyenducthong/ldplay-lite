@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 import logging
 from pathlib import Path
+import re
 
 from utils.process import CommandResult, run_binary, run_command
 from utils.system import screenshots_dir
@@ -26,6 +27,22 @@ def parse_devices(output: str) -> list[ADBDevice]:
         if len(parts) >= 2:
             devices.append(ADBDevice(parts[0], parts[1], parts[2] if len(parts) > 2 else ""))
     return devices
+
+
+def ldplayer_index_from_serial(serial: str) -> int | None:
+    """Infer an LDPlayer instance index from its usual local ADB serial."""
+    emulator = re.fullmatch(r"emulator-(\d+)", serial.strip(), flags=re.IGNORECASE)
+    if emulator:
+        port = int(emulator.group(1))
+        if port >= 5554 and (port - 5554) % 2 == 0:
+            return (port - 5554) // 2
+
+    endpoint = re.fullmatch(r"(?:127\.0\.0\.1|localhost):(\d+)", serial.strip(), flags=re.IGNORECASE)
+    if endpoint:
+        port = int(endpoint.group(1))
+        if port >= 5555 and (port - 5555) % 2 == 0:
+            return (port - 5555) // 2
+    return None
 
 
 class ADBManager:

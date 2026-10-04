@@ -5,7 +5,7 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 
-from core.adb import ADBManager, parse_devices
+from core.adb import ADBManager, ldplayer_index_from_serial, parse_devices
 from core.detector import detect_ldplayer
 from core.instance import parse_list2
 from core.optimizer import OptimizationProfile
@@ -38,6 +38,12 @@ class ADBParsingTests(unittest.TestCase):
         self.assertEqual(devices[0].serial, "127.0.0.1:5555")
         self.assertEqual(devices[0].state, "device")
         self.assertEqual(devices[1].state, "offline")
+
+    def test_maps_adb_serial_to_ldplayer_index(self) -> None:
+        self.assertEqual(ldplayer_index_from_serial("emulator-5554"), 0)
+        self.assertEqual(ldplayer_index_from_serial("emulator-5558"), 2)
+        self.assertEqual(ldplayer_index_from_serial("127.0.0.1:5557"), 1)
+        self.assertIsNone(ldplayer_index_from_serial("USB123"))
 
     @patch.object(ADBManager, "shell")
     def test_network_diagnostics_runs_ip_and_dns_checks(self, shell_mock) -> None:
@@ -112,6 +118,27 @@ class DetectorTests(unittest.TestCase):
 
 
 class ConsoleCommandTests(unittest.TestCase):
+    def test_list_instances_merges_stopped_vms_from_config(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            config_dir = root / "vms" / "config"
+            config_dir.mkdir(parents=True)
+            for index in range(6):
+                (config_dir / f"leidian{index}.config").write_text(
+                    '{"statusSettings":{"playerName":"May %d"}}' % (index + 1),
+                    encoding="utf-8",
+                )
+            console = LDPlayerConsole(root / "ldconsole.exe")
+            list2 = "\n".join(
+                f"{index},May {index + 1},0,0,1,{100 + index},0,800,800,240"
+                for index in range(3)
+            )
+            with patch.object(console, "_run", return_value=CommandResult(("ldconsole", "list2"), 0, list2, "")):
+                instances = console.list_instances()
+            self.assertEqual(len(instances), 6)
+            self.assertEqual([item.name for item in instances], [f"May {index}" for index in range(1, 7)])
+            self.assertEqual(sum(item.running for item in instances), 3)
+
     @patch("core.ldplayer.run_command")
     def test_modify_uses_argument_list(self, run_command_mock) -> None:
         run_command_mock.return_value = CommandResult(("ldconsole.exe",), 0, "", "")

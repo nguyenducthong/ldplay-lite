@@ -94,9 +94,11 @@ OCR còn yêu cầu Tesseract được cài trên Windows và có trong `PATH`.
 ```powershell
 python -m unittest discover -s tests -v
 .\build.ps1
+# Hoặc bản giao diện tối không dùng Qt:
+.\build-compat.ps1
 ```
 
-File build xuất hiện tại `dist\LDPlayerLiteManager.exe`.
+Bản Qt xuất hiện tại `dist\LDPlayerLiteManager-fixed\LDPlayerLiteManager.exe`. Bản giao diện tối không dùng Qt xuất hiện tại `dist\LDPlayerLiteManager-Dark\LDPlayerLiteManager-Dark.exe`. Khi chuyển sang máy khác, phải chép toàn bộ thư mục tương ứng hoặc dùng gói ZIP portable; không tách riêng file EXE khỏi thư mục `_internal`.
 
 ## Lưu ý tương thích
 
