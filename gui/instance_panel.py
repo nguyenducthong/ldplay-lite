@@ -33,8 +33,8 @@ class InstancePanel(QWidget):
         hint = QLabel("Chọn một hoặc nhiều dòng để thực hiện thao tác hàng loạt.")
         hint.setObjectName("muted")
 
-        self.table = QTableWidget(0, 5)
-        self.table.setHorizontalHeaderLabels(("ID", "Tên", "Trạng thái", "PID", "VBox PID"))
+        self.table = QTableWidget(0, 6)
+        self.table.setHorizontalHeaderLabels(("ID", "Tên", "Trạng thái", "Màn hình", "PID", "VBox PID"))
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -42,7 +42,7 @@ class InstancePanel(QWidget):
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.Stretch)
-        for column in (2, 3, 4):
+        for column in (2, 3, 4, 5):
             header.setSectionResizeMode(column, QHeaderView.ResizeToContents)
 
         top_actions = QHBoxLayout()
@@ -90,6 +90,11 @@ class InstancePanel(QWidget):
                 str(instance.index),
                 instance.name,
                 "Đang chạy" if instance.running else "Đã dừng",
+                (
+                    f"{instance.width}×{instance.height} · {instance.dpi} DPI"
+                    if instance.width and instance.height
+                    else "—"
+                ),
                 str(instance.process_id or "—"),
                 str(instance.vbox_process_id or "—"),
             )

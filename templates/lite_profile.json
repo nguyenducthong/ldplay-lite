@@ -5,5 +5,7 @@
   "dpi": 160,
   "fps": 20,
   "animation": false,
-  "audio": false
+  "audio": false,
+  "memory_optimization": true,
+  "process_priority": "normal"
 }

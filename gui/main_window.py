@@ -5,7 +5,7 @@ from pathlib import Path
 import traceback
 from typing import Any
 
-from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, Signal, Slot
+from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QTimer, Signal, Slot
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -28,9 +28,11 @@ from core.detector import detect_ldplayer
 from core.instance import Instance
 from core.ldplayer import LDPlayerConsole
 from core.optimizer import OptimizationProfile, Optimizer
+from core.packages import PackageActionResult, PackageManager
 from gui.adb_panel import ADBPanel
 from gui.instance_panel import InstancePanel
 from gui.optimizer_panel import OptimizerPanel
+from gui.packages_panel import PackagesPanel
 from gui.settings_panel import SettingsPanel
 from utils.config import ConfigStore, load_profiles
 from utils.logger import configure_logging
@@ -79,12 +81,22 @@ class Worker(QRunnable):
     @Slot()
     def run(self) -> None:
         try:
-            self.signals.succeeded.emit(self.function())
+            result = self.function()
+            try:
+                self.signals.succeeded.emit(result)
+            except RuntimeError:
+                return
         except Exception as exc:  # GUI boundary: display actionable error instead of crashing.
             details = "".join(traceback.format_exception_only(type(exc), exc)).strip()
-            self.signals.failed.emit(details)
+            try:
+                self.signals.failed.emit(details)
+            except RuntimeError:
+                return
         finally:
-            self.signals.finished.emit()
+            try:
+                self.signals.finished.emit()
+            except RuntimeError:
+                pass
 
 
 class DashboardPanel(QWidget):
@@ -152,6 +164,7 @@ class MainWindow(QMainWindow):
         self.console: LDPlayerConsole | None = None
         self.adb: ADBManager | None = None
         self.optimizer: Optimizer | None = None
+        self.package_manager: PackageManager | None = None
         self.instances: list[Instance] = []
         self.pool = QThreadPool.globalInstance()
         self._workers: set[Worker] = set()
@@ -159,7 +172,17 @@ class MainWindow(QMainWindow):
         self.dashboard = DashboardPanel()
         self.instance_panel = InstancePanel()
         self.optimizer_panel = OptimizerPanel(load_profiles())
+        self.optimizer_panel.profile.setCurrentText(
+            str(self.config.data.get("default_profile", "Lite"))
+        )
+        saved_profile = self.config.data.get("last_optimization_profile", {})
+        if isinstance(saved_profile, dict) and saved_profile:
+            try:
+                self.optimizer_panel.set_profile(OptimizationProfile.from_dict(saved_profile))
+            except (TypeError, ValueError):
+                pass
         self.adb_panel = ADBPanel()
+        self.packages_panel = PackagesPanel()
         self.settings_panel = SettingsPanel(self.config.data)
         self.pages = QStackedWidget()
         for page in (
@@ -167,12 +190,13 @@ class MainWindow(QMainWindow):
             self.instance_panel,
             self.optimizer_panel,
             self.adb_panel,
+            self.packages_panel,
             self.settings_panel,
         ):
             self.pages.addWidget(page)
 
         self.navigation = QListWidget()
-        for label in ("Tổng quan", "Instances", "Tối ưu", "ADB", "Cài đặt"):
+        for label in ("Tổng quan", "Instances", "Tối ưu", "ADB", "Ứng dụng", "Cài đặt"):
             self.navigation.addItem(QListWidgetItem(label))
         self.navigation.setCurrentRow(0)
         self.navigation.currentRowChanged.connect(self.pages.setCurrentIndex)
@@ -201,6 +225,13 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(APP_STYLE)
         self.statusBar().showMessage("Sẵn sàng")
         self._connect_signals()
+        self._profile_save_timer = QTimer(self)
+        self._profile_save_timer.setSingleShot(True)
+        self._profile_save_timer.setInterval(300)
+        self._profile_save_timer.timeout.connect(self._save_optimization_settings)
+        self.optimizer_panel.settings_changed.connect(
+            lambda: self._profile_save_timer.start()
+        )
         self._configure_services()
 
     def _connect_signals(self) -> None:
@@ -226,6 +257,12 @@ class MainWindow(QMainWindow):
         self.adb_panel.shell_requested.connect(self.run_shell)
         self.adb_panel.screenshot_requested.connect(self.capture_screenshot)
         self.adb_panel.connect_requested.connect(self.connect_adb)
+        self.adb_panel.network_test_requested.connect(self.test_network)
+        self.packages_panel.scan_requested.connect(self.scan_packages)
+        self.packages_panel.disable_requested.connect(self.disable_packages)
+        self.packages_panel.enable_requested.connect(self.enable_packages)
+        self.packages_panel.restore_requested.connect(self.restore_packages)
+        self.packages_panel.analyze_requested.connect(self.analyze_target_packages)
         self.settings_panel.save_requested.connect(self.save_settings)
         self.settings_panel.detect_requested.connect(self.detect)
 
@@ -239,6 +276,7 @@ class MainWindow(QMainWindow):
             else None
         )
         self.optimizer = Optimizer(self.console, self.adb) if self.console else None
+        self.package_manager = PackageManager(self.adb) if self.adb else None
         self.dashboard.set_installation(self.console is not None, self.adb is not None)
         if self.console:
             self.refresh_all()
@@ -307,7 +345,11 @@ class MainWindow(QMainWindow):
         if not self.adb:
             self._show_error("ADB chưa được cấu hình.")
             return
-        self._run_async("Đang đọc thiết bị ADB…", self.adb.devices, self.adb_panel.set_devices)
+        def done(devices: list[Any]) -> None:
+            self.adb_panel.set_devices(devices)
+            self.packages_panel.set_devices(devices)
+
+        self._run_async("Đang đọc thiết bị ADB…", self.adb.devices, done)
 
     def instance_action(self, action: str, indices: list[int]) -> None:
         if not self.console:
@@ -325,12 +367,11 @@ class MainWindow(QMainWindow):
             if answer != QMessageBox.Yes:
                 return
 
-        operations = {
-            "start": self.console.start,
-            "stop": self.console.stop,
-            "restart": self.console.restart,
-            "delete": self.console.delete,
-        }
+        if action in ("start", "restart"):
+            self._start_optimized(indices, restart=action == "restart")
+            return
+
+        operations = {"stop": self.console.stop, "delete": self.console.delete}
 
         def execute() -> None:
             for index in indices:
@@ -377,12 +418,49 @@ class MainWindow(QMainWindow):
         if not indices:
             self.statusBar().showMessage("Tất cả instance đã chạy.", 4000)
             return
-        delay = int(self.config.data.get("startup_delay", 10))
-        self._run_async(
-            f"Đang khởi động tuần tự {len(indices)} instance…",
-            lambda: self.console.start_sequential(indices, delay),
-            lambda _: self.refresh_instances(),
-        )
+        self._start_optimized(indices)
+
+    def _start_optimized(self, indices: list[int], *, restart: bool = False) -> None:
+        if not self.console or not self.optimizer:
+            self._show_error("Bộ tối ưu chưa sẵn sàng.")
+            return
+        profile = self.optimizer_panel.current_profile()
+        delay = int(self.config.data.get("startup_delay", 5))
+
+        def execute() -> tuple[dict[int, float], list[str]]:
+            warnings = self.optimizer.configure_multi_instance(profile)
+            targets = indices
+            if restart:
+                for index in targets:
+                    instance = next((item for item in self.console.list_instances() if item.index == index), None)
+                    if instance and instance.running:
+                        self.console.stop(index)
+                        self.console.wait_for_state(index, running=False, timeout=45)
+            else:
+                running = {item.index for item in self.console.list_instances() if item.running}
+                targets = [index for index in targets if index not in running]
+            times = self.console.start_sequential(
+                targets,
+                delay,
+                after_start=lambda instance: warnings.extend(
+                    self.optimizer.apply_runtime(instance, profile)
+                ),
+            )
+            return times, warnings
+
+        def done(result: tuple[dict[int, float], list[str]]) -> None:
+            times, warnings = result
+            self.refresh_instances()
+            if times:
+                average = sum(times.values()) / len(times)
+                message = f"Đã khởi động {len(times)} instance, trung bình {average:.1f} giây."
+            else:
+                message = "Các instance đã được khởi động từ trước."
+            if warnings:
+                message += "\n\n" + "\n".join(warnings[:5])
+            QMessageBox.information(self, "Khởi động tối ưu", message)
+
+        self._run_async(f"Đang khởi động tối ưu {len(indices)} instance…", execute, done)
 
     def stop_all(self) -> None:
         if not self.console:
@@ -405,18 +483,32 @@ class MainWindow(QMainWindow):
             self._show_error("Hãy chọn ít nhất một instance.")
             return
 
-        def execute() -> list[str]:
-            backups: list[str] = []
-            for index in targets:
-                backups.append(str(self.optimizer.apply(index, profile)))
-            return backups
+        def execute() -> list[Any]:
+            results: list[Any] = []
+            for position, index in enumerate(targets):
+                results.append(
+                    self.optimizer.apply(
+                        index,
+                        profile,
+                        restart_running=True,
+                        configure_global=position == 0,
+                    )
+                )
+            return results
 
-        def done(backups: list[str]) -> None:
+        def done(results: list[Any]) -> None:
             self.refresh_instances()
+            warnings = [warning for result in results for warning in result.warnings]
+            message = (
+                f"Đã áp dụng profile cho {len(targets)} instance.\n"
+                f"Đã tạo {len(results)} bản sao lưu. Instance đang chạy đã được khởi động lại."
+            )
+            if warnings:
+                message += "\n\nLưu ý:\n" + "\n".join(warnings[:5])
             QMessageBox.information(
                 self,
                 "Đã tối ưu",
-                f"Đã áp dụng profile cho {len(targets)} instance.\nĐã tạo {len(backups)} bản sao lưu.",
+                message,
             )
 
         self._run_async(f"Đang tối ưu {len(targets)} instance…", execute, done)
@@ -446,6 +538,105 @@ class MainWindow(QMainWindow):
             "Đang chụp màn hình…",
             lambda: self.adb.screenshot(serial, destination),
             lambda path: self.adb_panel.append_output(f"Đã lưu ảnh: {path}"),
+        )
+
+    def test_network(self, serial: str) -> None:
+        if not self.adb or not serial:
+            self._show_error("Hãy chọn một thiết bị ADB đang kết nối.")
+            return
+        self.adb_panel.append_output("\n=== Kiểm tra mạng LDPlayer ===")
+        self._run_async(
+            "Đang kiểm tra DNS, route và độ trễ mạng…",
+            lambda: self.adb.network_diagnostics(serial),
+            self.adb_panel.append_output,
+        )
+
+    def scan_packages(self, serial: str, include_system: bool) -> None:
+        if not self.package_manager or not serial:
+            self._show_error("Hãy kết nối và chọn một thiết bị ADB.")
+            return
+        self._run_async(
+            "Đang quét ứng dụng Android…",
+            lambda: self.package_manager.scan(serial, include_system=include_system),
+            self.packages_panel.set_packages,
+        )
+
+    def analyze_target_packages(self, serial: str, target: str) -> None:
+        if not self.package_manager or not serial:
+            self._show_error("Hãy kết nối và chọn một thiết bị ADB.")
+            return
+        self._run_async(
+            f"Đang phân tích package cần cho {target}…",
+            lambda: self.package_manager.analyze_for_target(serial, target),
+            self.packages_panel.set_packages,
+        )
+
+    def disable_packages(self, serial: str, packages: list[str]) -> None:
+        if not self.package_manager or not serial or not packages:
+            self._show_error("Hãy chọn ít nhất một package trên thiết bị ADB.")
+            return
+        answer = QMessageBox.question(
+            self,
+            "Vô hiệu hóa ứng dụng",
+            f"Vô hiệu hóa {len(packages)} package đã chọn? Trạng thái hiện tại sẽ được sao lưu.",
+        )
+        if answer != QMessageBox.Yes:
+            return
+        self._run_package_action(
+            serial,
+            lambda: self.package_manager.disable(serial, packages),
+            "Đang vô hiệu hóa ứng dụng…",
+        )
+
+    def enable_packages(self, serial: str, packages: list[str]) -> None:
+        if not self.package_manager or not serial or not packages:
+            self._show_error("Hãy chọn ít nhất một package trên thiết bị ADB.")
+            return
+        self._run_package_action(
+            serial,
+            lambda: self.package_manager.enable(serial, packages),
+            "Đang bật lại ứng dụng…",
+        )
+
+    def _run_package_action(
+        self,
+        serial: str,
+        action: Callable[[], PackageActionResult],
+        message: str,
+    ) -> None:
+        def done(result: PackageActionResult) -> None:
+            summary = f"Đã thay đổi {len(result.changed)} package.\nBackup: {result.backup}"
+            if result.failed:
+                summary += f"\nKhông thể thay đổi {len(result.failed)} package."
+            QMessageBox.information(self, "Ứng dụng Android", summary)
+            self.scan_packages(serial, self.packages_panel.include_system.isChecked())
+
+        self._run_async(message, action, done)
+
+    def restore_packages(self) -> None:
+        if not self.package_manager:
+            self._show_error("ADB chưa được cấu hình.")
+            return
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Chọn backup trạng thái package",
+            filter="JSON (*.json)",
+        )
+        if not path:
+            return
+
+        def done(result: PackageActionResult) -> None:
+            QMessageBox.information(
+                self,
+                "Đã khôi phục",
+                f"Đã khôi phục trạng thái của {len(result.changed)} package.",
+            )
+            self.refresh_devices()
+
+        self._run_async(
+            "Đang khôi phục trạng thái ứng dụng…",
+            lambda: self.package_manager.restore(path),
+            done,
         )
 
     def restore_backup(self) -> None:
@@ -478,6 +669,29 @@ class MainWindow(QMainWindow):
         self.config.update(**values)
         self._configure_services()
         self.statusBar().showMessage("Đã lưu cài đặt.", 5000)
+
+    def _save_optimization_settings(self) -> None:
+        profile = self.optimizer_panel.current_profile()
+        self.config.update(
+            default_profile=self.optimizer_panel.profile.currentText(),
+            last_optimization_profile={
+                "cpu": profile.cpu,
+                "ram": profile.ram,
+                "width": profile.width,
+                "height": profile.height,
+                "dpi": profile.dpi,
+                "fps": profile.fps,
+                "animation": profile.animation,
+                "audio": profile.audio,
+                "memory_optimization": profile.memory_optimization,
+                "process_priority": profile.process_priority,
+            },
+        )
+
+    def closeEvent(self, event: Any) -> None:
+        self._save_optimization_settings()
+        self.pool.waitForDone(1000)
+        super().closeEvent(event)
 
 
 def run_gui() -> int:

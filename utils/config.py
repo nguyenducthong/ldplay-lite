@@ -13,10 +13,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "console_path": "",
     "adb_path": "",
     "default_profile": "Lite",
-    "startup_delay": 10,
+    "startup_delay": 5,
     "adb_timeout": 30,
     "screenshot_directory": "",
     "log_directory": "",
+    "last_optimization_profile": {},
 }
 
 

@@ -20,6 +20,7 @@ class OptimizerPanel(QWidget):
     apply_selected_requested = Signal(object)
     apply_all_requested = Signal(object)
     restore_requested = Signal()
+    settings_changed = Signal()
 
     def __init__(self, profiles: dict[str, dict]) -> None:
         super().__init__()
@@ -28,6 +29,13 @@ class OptimizerPanel(QWidget):
         title.setObjectName("pageTitle")
         warning = QLabel("RAM quá thấp có thể khiến Android hoặc ứng dụng bị hệ thống đóng.")
         warning.setObjectName("warning")
+        network_hint = QLabel(
+            "Nếu mạng bị chậm hoặc khựng, chọn profile “Ổn định mạng”; profile này giữ ưu tiên tiến trình bình thường và không ép tối ưu RAM/GPU."
+        )
+        network_hint.setWordWrap(True)
+        network_hint.setObjectName("muted")
+        persistence_hint = QLabel("Các giá trị chỉnh tay được tự động lưu cho lần mở tiếp theo.")
+        persistence_hint.setObjectName("muted")
 
         self.profile = QComboBox()
         self.profile.addItems(profiles.keys())
@@ -42,8 +50,13 @@ class OptimizerPanel(QWidget):
         self.dpi = QSpinBox()
         self.dpi.setRange(80, 640)
         self.fps = QComboBox()
-        self.fps.addItems(("15", "20", "30", "60"))
+        self.fps.addItems(("10", "15", "20", "30", "60"))
         self.animations = QCheckBox("Giữ hiệu ứng Android")
+        self.memory_optimization = QCheckBox("Tối ưu RAM/GPU của chế độ đa phiên")
+        self.priority = QComboBox()
+        self.priority.addItem("Thấp hơn bình thường", "below_normal")
+        self.priority.addItem("Bình thường", "normal")
+        self.priority.addItem("Rất thấp", "idle")
 
         form = QFormLayout()
         form.setSpacing(14)
@@ -55,6 +68,8 @@ class OptimizerPanel(QWidget):
         form.addRow("DPI", self.dpi)
         form.addRow("FPS", self.fps)
         form.addRow("", self.animations)
+        form.addRow("", self.memory_optimization)
+        form.addRow("Ưu tiên sau khi khởi động", self.priority)
 
         apply_selected = QPushButton("Áp dụng cho instance đã chọn")
         apply_selected.setObjectName("primaryButton")
@@ -74,11 +89,23 @@ class OptimizerPanel(QWidget):
         layout.setSpacing(14)
         layout.addWidget(title)
         layout.addWidget(warning)
+        layout.addWidget(network_hint)
+        layout.addWidget(persistence_hint)
         layout.addLayout(form)
         layout.addLayout(actions)
         layout.addStretch()
 
         self.profile.currentTextChanged.connect(self._load_profile)
+        self.profile.currentTextChanged.connect(lambda _value: self.settings_changed.emit())
+        self.cpu.valueChanged.connect(lambda _value: self.settings_changed.emit())
+        self.ram.currentTextChanged.connect(lambda _value: self.settings_changed.emit())
+        self.width.valueChanged.connect(lambda _value: self.settings_changed.emit())
+        self.height.valueChanged.connect(lambda _value: self.settings_changed.emit())
+        self.dpi.valueChanged.connect(lambda _value: self.settings_changed.emit())
+        self.fps.currentTextChanged.connect(lambda _value: self.settings_changed.emit())
+        self.animations.toggled.connect(lambda _value: self.settings_changed.emit())
+        self.memory_optimization.toggled.connect(lambda _value: self.settings_changed.emit())
+        self.priority.currentIndexChanged.connect(lambda _value: self.settings_changed.emit())
         if profiles:
             self._load_profile(self.profile.currentText())
 
@@ -88,6 +115,9 @@ class OptimizerPanel(QWidget):
             profile = OptimizationProfile.from_dict(values)
         except (ValueError, TypeError):
             return
+        self.set_profile(profile)
+
+    def set_profile(self, profile: OptimizationProfile) -> None:
         self.cpu.setValue(profile.cpu)
         self.ram.setCurrentText(str(profile.ram))
         self.width.setValue(profile.width)
@@ -95,6 +125,10 @@ class OptimizerPanel(QWidget):
         self.dpi.setValue(profile.dpi)
         self.fps.setCurrentText(str(profile.fps))
         self.animations.setChecked(profile.animation)
+        self.memory_optimization.setChecked(profile.memory_optimization)
+        priority_index = self.priority.findData(profile.process_priority)
+        if priority_index >= 0:
+            self.priority.setCurrentIndex(priority_index)
 
     def current_profile(self) -> OptimizationProfile:
         return OptimizationProfile(
@@ -105,4 +139,7 @@ class OptimizerPanel(QWidget):
             dpi=self.dpi.value(),
             fps=int(self.fps.currentText()),
             animation=self.animations.isChecked(),
+            audio=False,
+            memory_optimization=self.memory_optimization.isChecked(),
+            process_priority=str(self.priority.currentData()),
         )

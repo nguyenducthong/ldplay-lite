@@ -6,7 +6,9 @@
     "dpi": 240,
     "fps": 60,
     "animation": true,
-    "audio": true
+    "audio": true,
+    "memory_optimization": false,
+    "process_priority": "normal"
   },
   "Balanced": {
     "cpu": 2,
@@ -15,7 +17,20 @@
     "dpi": 240,
     "fps": 30,
     "animation": false,
-    "audio": true
+    "audio": true,
+    "memory_optimization": true,
+    "process_priority": "normal"
+  },
+  "Ổn định mạng": {
+    "cpu": 2,
+    "ram": 1536,
+    "resolution": "540x960",
+    "dpi": 160,
+    "fps": 30,
+    "animation": false,
+    "audio": false,
+    "memory_optimization": false,
+    "process_priority": "normal"
   },
   "Lite": {
     "cpu": 1,
@@ -24,7 +39,9 @@
     "dpi": 160,
     "fps": 20,
     "animation": false,
-    "audio": false
+    "audio": false,
+    "memory_optimization": true,
+    "process_priority": "normal"
   },
   "Ultra Lite": {
     "cpu": 1,
@@ -33,6 +50,8 @@
     "dpi": 160,
     "fps": 15,
     "animation": false,
-    "audio": false
+    "audio": false,
+    "memory_optimization": true,
+    "process_priority": "idle"
   }
 }

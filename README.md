@@ -8,8 +8,15 @@
 - Liệt kê, tạo, nhân bản, đổi tên, khởi động, dừng, khởi động lại và xóa instance.
 - Áp dụng profile CPU, RAM, độ phân giải, DPI và FPS cho một hoặc nhiều instance.
 - Bật/tắt animation Android qua ADB khi instance đang chạy.
+- Áp dụng FPS, tắt âm thanh và memory optimization bằng `globalsetting` của LDMultiPlayer.
+- Tự dừng rồi khởi động lại instance đang chạy để cấu hình thực sự có hiệu lực.
+- Giữ ưu tiên tiến trình bình thường trong lúc boot, sau đó hạ xuống theo profile để giảm tranh chấp CPU.
 - Khởi động nhiều instance theo thứ tự, có thời gian nghỉ để tránh tăng tải đột ngột.
 - Chạy ADB shell, kết nối thiết bị và chụp màn hình PNG.
+- Kiểm tra DNS, route, ping IP và ping tên miền trực tiếp từ Android của LDPlayer.
+- Quét ứng dụng Android theo từng instance, phân biệt package người dùng và hệ thống.
+- Vô hiệu hóa bằng `pm disable-user`, bật lại hoặc khôi phục trạng thái từ backup; không tự động uninstall.
+- Khóa thao tác với System UI, Settings, launcher, Google Play Services và Android provider thiết yếu.
 - Tự động sao lưu file cấu hình instance trước khi tối ưu nếu file đó có trong installation LDPlayer.
 - Khôi phục backup trong GUI hoặc CLI; instance phải được dừng trước khi khôi phục.
 - Có GUI PySide6 và CLI `ldlite`.
@@ -51,6 +58,20 @@ Có thể thêm `--console C:\...\ldconsole.exe` hoặc `--adb C:\...\adb.exe` t
 ## Profile
 
 Các profile nằm trong `config/profiles.json`. Profile Lite mặc định dùng 1 CPU, 512 MB RAM, 540×960, DPI 160 và 20 FPS. Hãy tăng RAM nếu ứng dụng Android bị đóng do thiếu bộ nhớ.
+
+Nút **Khởi động** và **Khởi động tất cả** trong Manager dùng luồng khởi động tối ưu: áp cài đặt đa phiên, đợi từng Android sẵn sàng, tắt animation rồi mới hạ độ ưu tiên tiến trình. Nút **Tối ưu** tự khởi động lại các instance đang chạy vì LDPlayer chỉ nhận đầy đủ CPU, RAM, độ phân giải và cài đặt đa phiên sau khi restart.
+
+`globalsetting` khác nhau giữa các đời LDPlayer. Nếu bản đang dùng không hỗ trợ, Manager vẫn áp dụng CPU/RAM/độ phân giải và hiển thị cảnh báo để bạn bật FPS, tắt audio và Memory optimization trong cửa sổ LDMultiPlayer.
+
+Nếu mạng trong LDPlayer bị chậm hoặc khựng, dùng profile **Ổn định mạng**. Profile này dùng 2 CPU, 1536 MB RAM, 30 FPS, ưu tiên tiến trình bình thường và tắt memory optimization để tránh Android bị thiếu thời gian CPU hoặc phải thu hồi bộ nhớ liên tục. Trong trang **ADB**, chọn thiết bị rồi bấm **Kiểm tra mạng** để xem ping theo IP và tên miền; ping IP tốt nhưng ping tên miền lỗi thường chỉ ra vấn đề DNS.
+
+## Tắt ứng dụng không cần thiết
+
+Mở instance, vào trang **Ứng dụng**, chọn thiết bị ADB rồi bấm **Quét package**. Danh sách mặc định chỉ hiện ứng dụng người dùng; bật **Hiện package hệ thống** khi cần kiểm tra sâu hơn. Chọn package và bấm **Vô hiệu hóa đã chọn**. Manager lưu trạng thái trước thay đổi tại `%APPDATA%\LDPlayerLiteManager\backups\packages`, vì vậy có thể bật lại hoặc dùng **Khôi phục từ backup**.
+
+Nếu chỉ cần chạy một ứng dụng, nhập package vào ô **Chỉ cần chạy** rồi bấm **Phân tích ứng dụng mục tiêu**. Manager giữ ứng dụng mục tiêu cùng Play Store, Google Play Services, GSF, WebView/Chrome, Download Manager, launcher và các thành phần Android thiết yếu; các package tùy chọn phù hợp để tắt thử sẽ được đánh dấu sẵn nhưng chưa bị thay đổi cho tới khi bạn bấm **Vô hiệu hóa đã chọn**.
+
+Nhãn **Nên xem xét** được suy ra từ tên package liên quan đến quảng cáo, analytics, app store, đề xuất, browser hoặc live wallpaper. Đây chỉ là gợi ý để kiểm tra, Manager không tự chọn và không tự tắt package nào.
 
 Cấu hình cá nhân, log, ảnh và backup được lưu tại:
 

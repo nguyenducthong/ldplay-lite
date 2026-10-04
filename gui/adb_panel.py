@@ -20,6 +20,7 @@ class ADBPanel(QWidget):
     shell_requested = Signal(str, str)
     screenshot_requested = Signal(str)
     connect_requested = Signal(str)
+    network_test_requested = Signal(str)
 
     def __init__(self) -> None:
         super().__init__()
@@ -50,10 +51,15 @@ class ADBPanel(QWidget):
         run.clicked.connect(self._run_shell)
         screenshot = QPushButton("Chụp màn hình")
         screenshot.clicked.connect(self._screenshot)
+        network_test = QPushButton("Kiểm tra mạng")
+        network_test.clicked.connect(
+            lambda: self.network_test_requested.emit(self.current_serial())
+        )
         command_row = QHBoxLayout()
         command_row.addWidget(self.command, 1)
         command_row.addWidget(run)
         command_row.addWidget(screenshot)
+        command_row.addWidget(network_test)
 
         self.output = QPlainTextEdit()
         self.output.setReadOnly(True)

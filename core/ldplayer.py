@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 import time
+from collections.abc import Callable
 
 from core.instance import Instance, parse_list2
 from utils.process import CommandResult, run_command
@@ -51,7 +52,6 @@ class LDPlayerConsole:
         width: int,
         height: int,
         dpi: int,
-        fps: int,
     ) -> None:
         resolution = f"{width},{height},{dpi}"
         self._run(
@@ -64,19 +64,70 @@ class LDPlayerConsole:
             str(memory),
             "--resolution",
             resolution,
+        )
+
+    def global_settings(
+        self,
+        *,
+        fps: int,
+        audio: bool,
+        fastplay: bool = True,
+        cleanmode: bool = True,
+    ) -> None:
+        """Apply LDPlayer's global multi-instance optimization settings."""
+        self._run(
+            "globalsetting",
             "--fps",
             str(fps),
+            "--audio",
+            "1" if audio else "0",
+            "--fastplay",
+            "1" if fastplay else "0",
+            "--cleanmode",
+            "1" if cleanmode else "0",
         )
 
     def adb_shell(self, index: int, command: str) -> str:
         """Run a shell command through LDConsole for a specific running instance."""
         return self._run("adb", "--index", str(index), "--command", command).stdout
 
-    def start_sequential(self, indices: list[int], delay: int = 10) -> None:
+    def wait_for_state(
+        self,
+        index: int,
+        *,
+        running: bool,
+        timeout: int = 90,
+        poll_interval: float = 1.0,
+    ) -> Instance:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            instance = next((item for item in self.list_instances() if item.index == index), None)
+            if instance and instance.running == running:
+                return instance
+            time.sleep(poll_interval)
+        state = "khởi động" if running else "dừng"
+        raise TimeoutError(f"Instance {index} không {state} trong {timeout} giây.")
+
+    def start_sequential(
+        self,
+        indices: list[int],
+        delay: int = 5,
+        *,
+        wait_ready: bool = True,
+        after_start: Callable[[Instance], None] | None = None,
+    ) -> dict[int, float]:
+        startup_times: dict[int, float] = {}
         for position, index in enumerate(indices):
+            started_at = time.monotonic()
             self.start(index)
+            if wait_ready:
+                instance = self.wait_for_state(index, running=True)
+                startup_times[index] = time.monotonic() - started_at
+                if after_start:
+                    after_start(instance)
             if position < len(indices) - 1:
                 time.sleep(delay)
+        return startup_times
 
     def stop_all(self) -> None:
         self._run("quitall")

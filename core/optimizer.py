@@ -10,6 +10,8 @@ from typing import Any
 
 from core.adb import ADBManager
 from core.ldplayer import LDPlayerConsole
+from core.resources import PRIORITIES, set_instance_priority
+from utils.process import CommandError
 from utils.system import backup_dir
 
 
@@ -23,6 +25,8 @@ class OptimizationProfile:
     fps: int
     animation: bool = False
     audio: bool = False
+    memory_optimization: bool = True
+    process_priority: str = "below_normal"
 
     @classmethod
     def from_dict(cls, values: dict[str, Any]) -> "OptimizationProfile":
@@ -40,6 +44,8 @@ class OptimizationProfile:
             fps=int(values.get("fps", 20)),
             animation=bool(values.get("animation", False)),
             audio=bool(values.get("audio", False)),
+            memory_optimization=bool(values.get("memory_optimization", True)),
+            process_priority=str(values.get("process_priority", "below_normal")),
         )
         profile.validate()
         return profile
@@ -53,8 +59,18 @@ class OptimizationProfile:
             raise ValueError("Độ phân giải phải nằm trong khoảng 240–3840 pixel.")
         if not 80 <= self.dpi <= 640:
             raise ValueError("DPI phải nằm trong khoảng 80–640.")
-        if self.fps not in (15, 20, 30, 60):
-            raise ValueError("FPS phải là 15, 20, 30 hoặc 60.")
+        if self.fps not in (10, 15, 20, 30, 60):
+            raise ValueError("FPS phải là 10, 15, 20, 30 hoặc 60.")
+        if self.process_priority not in PRIORITIES:
+            raise ValueError("Độ ưu tiên phải là normal, below_normal hoặc idle.")
+
+
+@dataclass(slots=True)
+class OptimizationResult:
+    index: int
+    backup: Path
+    restarted: bool
+    warnings: list[str]
 
 
 class Optimizer:
@@ -92,12 +108,51 @@ class Optimizer:
         )
         return folder
 
-    def apply(self, index: int, profile: OptimizationProfile) -> Path:
+    def configure_multi_instance(self, profile: OptimizationProfile) -> list[str]:
+        warnings: list[str] = []
+        try:
+            self.console.global_settings(
+                fps=profile.fps,
+                audio=profile.audio,
+                fastplay=True,
+                cleanmode=profile.memory_optimization,
+            )
+        except CommandError as exc:
+            warning = (
+                "Phiên bản LDPlayer này không nhận globalsetting; hãy bật FPS/audio/memory "
+                f"optimization trong LDMultiPlayer. Chi tiết: {exc}"
+            )
+            self.logger.warning(warning)
+            warnings.append(warning)
+        return warnings
+
+    def apply_runtime(self, instance: Any, profile: OptimizationProfile) -> list[str]:
+        warnings: list[str] = []
+        try:
+            self.set_instance_animations(instance.index, profile.animation)
+        except CommandError as exc:
+            warnings.append(f"Không thể đặt animation cho instance {instance.index}: {exc}")
+        warnings.extend(set_instance_priority(instance, profile.process_priority))
+        return warnings
+
+    def apply(
+        self,
+        index: int,
+        profile: OptimizationProfile,
+        *,
+        restart_running: bool = True,
+        configure_global: bool = True,
+    ) -> OptimizationResult:
         profile.validate()
         current = next((item for item in self.console.list_instances() if item.index == index), None)
         if current is None:
             raise RuntimeError(f"Instance {index} không tồn tại.")
+        warnings = self.configure_multi_instance(profile) if configure_global else []
         backup = self.backup(index, profile)
+        was_running = current.running
+        if was_running and restart_running:
+            self.console.stop(index)
+            self.console.wait_for_state(index, running=False, timeout=45)
         self.console.modify(
             index,
             cpu=profile.cpu,
@@ -105,19 +160,21 @@ class Optimizer:
             width=profile.width,
             height=profile.height,
             dpi=profile.dpi,
-            fps=profile.fps,
         )
         verified = next((item for item in self.console.list_instances() if item.index == index), None)
         if verified is None:
             raise RuntimeError("Không thể xác minh instance sau khi tối ưu.")
-        if verified.running:
-            self.set_instance_animations(index, profile.animation)
+        if was_running and restart_running:
+            self.console.start(index)
+            verified = self.console.wait_for_state(index, running=True)
+            warnings.extend(self.apply_runtime(verified, profile))
+        elif verified.running:
+            warnings.append(f"Instance {index} cần khởi động lại để áp dụng đầy đủ cấu hình.")
         else:
-            self.logger.info(
-                "Instance %s đang dừng; cài đặt animation sẽ được áp dụng khi tối ưu lại lúc instance đang chạy.",
-                index,
+            warnings.append(
+                f"Instance {index} đang dừng; animation và độ ưu tiên sẽ được áp dụng lúc khởi động bằng Manager."
             )
-        return backup
+        return OptimizationResult(index, backup, was_running and restart_running, warnings)
 
     def set_instance_animations(self, index: int, enabled: bool) -> None:
         value = "1" if enabled else "0"

@@ -85,3 +85,19 @@ class ADBManager:
         output.write_bytes(image)
         self.logger.info("Đã lưu ảnh: %s", output)
         return output
+
+    def network_diagnostics(self, serial: str) -> str:
+        sections: list[str] = []
+        commands = (
+            ("DNS", "getprop net.dns1"),
+            ("Route", "ip route"),
+            ("Ping IP", "ping -c 4 -W 2 1.1.1.1"),
+            ("Ping DNS", "ping -c 4 -W 2 google.com"),
+        )
+        for label, command in commands:
+            try:
+                output = self.shell(serial, command).strip() or "(không có dữ liệu)"
+            except Exception as exc:
+                output = f"Lỗi: {exc}"
+            sections.append(f"[{label}]\n{output}")
+        return "\n\n".join(sections)

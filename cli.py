@@ -138,8 +138,10 @@ def main(argv: list[str] | None = None) -> int:
         profile = _profile(args.profile)
         targets = [args.index] if args.command == "optimize" else [item.index for item in console.list_instances()]
         for index in targets:
-            backup = optimizer.apply(index, profile)
-            print(f"Đã tối ưu {index}; backup: {backup}")
+            result = optimizer.apply(index, profile, configure_global=index == targets[0])
+            print(f"Đã tối ưu {index}; backup: {result.backup}")
+            for warning in result.warnings:
+                print(f"Cảnh báo: {warning}")
     elif args.command == "start-all":
         indices = [item.index for item in console.list_instances() if not item.running]
         delay = args.delay if args.delay is not None else int(config.data.get("startup_delay", 10))
