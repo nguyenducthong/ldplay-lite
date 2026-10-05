@@ -52,6 +52,7 @@ class OptimizerPanel(QWidget):
         self.fps = QComboBox()
         self.fps.addItems(("10", "15", "20", "30", "60"))
         self.animations = QCheckBox("Giữ hiệu ứng Android")
+        self.audio = QCheckBox("Bật âm thanh (khuyến nghị giữ để tránh lỗi văng game)")
         self.memory_optimization = QCheckBox("Tối ưu RAM/GPU của chế độ đa phiên")
         self.priority = QComboBox()
         self.priority.addItem("Thấp hơn bình thường", "below_normal")
@@ -68,6 +69,7 @@ class OptimizerPanel(QWidget):
         form.addRow("DPI", self.dpi)
         form.addRow("FPS", self.fps)
         form.addRow("", self.animations)
+        form.addRow("", self.audio)
         form.addRow("", self.memory_optimization)
         form.addRow("Ưu tiên sau khi khởi động", self.priority)
 
@@ -86,7 +88,7 @@ class OptimizerPanel(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(28, 24, 28, 24)
-        layout.setSpacing(14)
+        layout.setSpacing(12)
         layout.addWidget(title)
         layout.addWidget(warning)
         layout.addWidget(network_hint)
@@ -104,6 +106,7 @@ class OptimizerPanel(QWidget):
         self.dpi.valueChanged.connect(lambda _value: self.settings_changed.emit())
         self.fps.currentTextChanged.connect(lambda _value: self.settings_changed.emit())
         self.animations.toggled.connect(lambda _value: self.settings_changed.emit())
+        self.audio.toggled.connect(lambda _value: self.settings_changed.emit())
         self.memory_optimization.toggled.connect(lambda _value: self.settings_changed.emit())
         self.priority.currentIndexChanged.connect(lambda _value: self.settings_changed.emit())
         if profiles:
@@ -125,6 +128,7 @@ class OptimizerPanel(QWidget):
         self.dpi.setValue(profile.dpi)
         self.fps.setCurrentText(str(profile.fps))
         self.animations.setChecked(profile.animation)
+        self.audio.setChecked(profile.audio)
         self.memory_optimization.setChecked(profile.memory_optimization)
         priority_index = self.priority.findData(profile.process_priority)
         if priority_index >= 0:
@@ -139,7 +143,7 @@ class OptimizerPanel(QWidget):
             dpi=self.dpi.value(),
             fps=int(self.fps.currentText()),
             animation=self.animations.isChecked(),
-            audio=False,
+            audio=self.audio.isChecked(),
             memory_optimization=self.memory_optimization.isChecked(),
             process_priority=str(self.priority.currentData()),
         )

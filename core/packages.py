@@ -14,6 +14,8 @@ PACKAGE_PATTERN = re.compile(r"^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+$")
 
 PROTECTED_EXACT = {
     "android",
+    "android.ext.shared",
+    "android.ext.services",
     "com.android.systemui",
     "com.android.settings",
     "com.android.packageinstaller",
@@ -21,12 +23,19 @@ PROTECTED_EXACT = {
     "com.android.shell",
     "com.google.android.gms",
     "com.google.android.gsf",
+    "com.google.android.gsf.login",
     "com.google.android.webview",
     "com.android.webview",
     "com.android.vending",
+    "com.google.android.play.games",
+    "com.google.android.configupdater",
+    "com.android.phone",
+    "com.android.server.telecom",
+    "com.android.location.fused",
     "com.android.providers.settings",
     "com.android.providers.downloads",
     "com.android.providers.media",
+    "com.android.providers.telephony",
     "com.android.documentsui",
     "com.android.externalstorage",
     "com.android.captiveportallogin",
@@ -35,6 +44,7 @@ PROTECTED_EXACT = {
 }
 PROTECTED_PREFIXES = (
     "com.android.internal.",
+    "android.ext.",
 )
 REVIEW_TOKENS = (
     ".ads",
@@ -50,46 +60,26 @@ REVIEW_TOKENS = (
 )
 
 SAFE_OPTIONAL_PACKAGES = {
+    "com.android.chrome",
+    "com.android.gallery3d",
+    "com.android.contacts",
+    "com.google.android.syncadapters.contacts",
+    "com.android.messaging",
+    "com.android.mms.service",
+    "com.android.basicsmsreceiver",
+    "com.android.smspush",
+    "com.android.ld.appstore",
+    "com.android.printspooler",
+    "com.android.soundrecorder",
+    "com.android.wallpaper.livepicker",
+    "com.android.dreams.phototable",
+    "com.google.android.feedback",
     "com.google.ar.core",
     "com.google.android.safetycore",
-    "com.android.ld.appstore",
-    "com.android.soundrecorder",
-    "com.android.printspooler",
-    "com.google.android.feedback",
-    "com.android.dreams.phototable",
-    "com.android.wallpaper.livepicker",
     "com.android.traceur",
     "com.cyanogenmod.filemanager",
     "com.android.bookmarkprovider",
     "com.android.wallpaperbackup",
-    "com.android.gallery3d",
-    "com.android.messaging",
-    "com.android.mms.service",
-    "com.android.smspush",
-    "com.android.basicsmsreceiver",
-    "com.android.server.telecom",
-    "com.android.simappdialog",
-    "com.android.carrierconfig",
-    "com.android.carrierdefaultapp",
-    "com.android.contacts",
-    "com.android.providers.contacts",
-    "com.android.providers.calendar",
-    "com.android.providers.telephony",
-    "com.android.providers.userdictionary",
-    "com.google.android.tts",
-    "com.google.android.backuptransport",
-    "com.google.android.configupdater",
-    "com.android.companiondevicemanager",
-    "com.android.htmlviewer",
-    "com.android.se",
-    "com.android.vpndialogs",
-    "com.android.location.fused",
-    "com.android.settings.intelligence",
-    "com.android.managedprovisioning",
-    "com.android.provision",
-    "com.android.inputmethod.pinyin",
-    "com.google.android.play.games",
-    "com.android.chrome",
 }
 
 
@@ -179,13 +169,13 @@ class PackageManager:
                 recommendation = "Dịch vụ Android/Google cần giữ"
                 suggested = False
             elif package.name in SAFE_OPTIONAL_PACKAGES:
-                recommendation = "Có thể tắt thử cho mục tiêu này"
+                recommendation = "Đề xuất tắt (Rác/quảng cáo an toàn)"
                 suggested = True
             elif package.source == "Người dùng":
-                recommendation = "Ứng dụng khác — xem xét tắt"
-                suggested = True
+                recommendation = "Ứng dụng khác cài thêm — giữ an toàn"
+                suggested = False
             else:
-                recommendation = "Chưa rõ — nên giữ"
+                recommendation = "Dịch vụ hệ thống — nên giữ"
                 suggested = False
             analyzed.append(
                 AndroidPackage(

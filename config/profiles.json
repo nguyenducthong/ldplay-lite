@@ -28,18 +28,18 @@
     "dpi": 160,
     "fps": 30,
     "animation": false,
-    "audio": false,
+    "audio": true,
     "memory_optimization": false,
     "process_priority": "normal"
   },
   "Lite": {
     "cpu": 1,
-    "ram": 512,
+    "ram": 1024,
     "resolution": "540x960",
     "dpi": 160,
     "fps": 20,
     "animation": false,
-    "audio": false,
+    "audio": true,
     "memory_optimization": true,
     "process_priority": "normal"
   },

@@ -5,6 +5,7 @@ from datetime import datetime
 import logging
 from pathlib import Path
 import re
+import shlex
 
 from utils.process import CommandResult, run_binary, run_command
 from utils.system import screenshots_dir
@@ -67,11 +68,27 @@ class ADBManager:
 
     def shell(self, serial: str, command: str) -> str:
         clean = command.strip()
-        if clean.lower().startswith("adb shell "):
-            clean = clean[10:].strip()
-        if not clean:
+        if re.search(r"adb(?:\.exe)?\s+", clean, flags=re.IGNORECASE):
+            serial_match = re.search(r"-s\s+([^\s<>]+)", clean, flags=re.IGNORECASE)
+            if serial_match and (not serial or serial.startswith("<")):
+                serial = serial_match.group(1)
+            clean = re.sub(r"^.*?adb(?:\.exe)?\s+", "", clean, flags=re.IGNORECASE).strip()
+            clean = re.sub(r"^-s\s+(?:<[^>]+>|\S+)\s*", "", clean, flags=re.IGNORECASE).strip()
+        if clean.lower().startswith("adb "):
+            clean = clean[4:].strip()
+        if clean.lower().startswith("shell "):
+            clean = clean[6:].strip()
+            parts = shlex.split(clean, posix=False) if clean else []
+            args = ("shell", *parts)
+        elif clean.lower().startswith("logcat"):
+            parts = shlex.split(clean, posix=False) if clean else []
+            args = tuple(parts)
+        else:
+            parts = shlex.split(clean, posix=False) if clean else []
+            args = ("shell", *parts)
+        if not args:
             raise ValueError("Lệnh shell không được để trống.")
-        return self._run("-s", serial, "shell", clean).stdout
+        return self._run("-s", serial, *args).stdout
 
     def install(self, serial: str, apk: str | Path) -> str:
         return self._run("-s", serial, "install", "-r", str(apk), timeout=180).stdout

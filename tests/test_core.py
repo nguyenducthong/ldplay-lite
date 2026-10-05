@@ -45,6 +45,27 @@ class ADBParsingTests(unittest.TestCase):
         self.assertEqual(ldplayer_index_from_serial("127.0.0.1:5557"), 1)
         self.assertIsNone(ldplayer_index_from_serial("USB123"))
 
+    @patch.object(ADBManager, "_run")
+    def test_shell_command_parsing(self, run_mock) -> None:
+        run_mock.return_value = CommandResult(("adb",), 0, "mock_output", "")
+        adb = ADBManager("adb.exe")
+
+        # Plain shell command
+        adb.shell("emulator-5554", "getprop ro.build.version.release")
+        run_mock.assert_called_with("-s", "emulator-5554", "shell", "getprop", "ro.build.version.release")
+
+        # logcat command
+        adb.shell("emulator-5554", "logcat -b crash -d")
+        run_mock.assert_called_with("-s", "emulator-5554", "logcat", "-b", "crash", "-d")
+
+        # Full command pasted with exe and placeholder
+        adb.shell("emulator-5554", r"d:\LDPlayer\LDPlayer9\adb.exe -s <tên_serial_ví_dụ_emulator-5554> logcat -b crash -d")
+        run_mock.assert_called_with("-s", "emulator-5554", "logcat", "-b", "crash", "-d")
+
+        # Full command pasted with serial when no serial was pre-selected
+        adb.shell("", r"d:\LDPlayer\LDPlayer9\adb.exe -s emulator-5566 logcat -b crash -d")
+        run_mock.assert_called_with("-s", "emulator-5566", "logcat", "-b", "crash", "-d")
+
     @patch.object(ADBManager, "shell")
     def test_network_diagnostics_runs_ip_and_dns_checks(self, shell_mock) -> None:
         shell_mock.return_value = "ok"
@@ -81,6 +102,10 @@ class PackageManagerTests(unittest.TestCase):
         self.assertTrue(is_protected_package("com.example.launcher"))
         self.assertTrue(is_protected_package("com.android.vending"))
         self.assertTrue(is_protected_package("com.android.webview"))
+        self.assertFalse(is_protected_package("com.android.chrome"))
+        self.assertTrue(is_protected_package("android.ext.shared"))
+        self.assertTrue(is_protected_package("com.google.android.play.games"))
+        self.assertTrue(is_protected_package("com.android.phone"))
         self.assertFalse(is_protected_package("com.example.optionalapp"))
 
     def test_target_analysis_keeps_dependencies_and_marks_optional_apps(self) -> None:

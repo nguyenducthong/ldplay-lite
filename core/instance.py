@@ -32,7 +32,7 @@ def _number(value: str) -> int:
 def parse_list2(output: str) -> list[Instance]:
     instances: list[Instance] = []
     for row in csv.reader(line for line in output.splitlines() if line.strip()):
-        if len(row) < 2 or not row[0].strip().lstrip("-").isdigit():
+        if len(row) < 7 or not row[0].strip().lstrip("-").isdigit():
             continue
         values = row + [""] * (10 - len(row))
         instances.append(

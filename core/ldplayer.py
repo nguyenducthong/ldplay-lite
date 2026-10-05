@@ -20,16 +20,68 @@ class LDPlayerConsole:
         self.logger.info("LDConsole: %s", " ".join(args))
         return run_command((self.path, *args), timeout=timeout or self.timeout)
 
+    def _detect_running_processes(self) -> dict[int, int]:
+        """Inspect running dnplayer.exe processes to reliably detect running instances."""
+        running: dict[int, int] = {}
+        try:
+            import psutil
+            import re
+            base_dir = str(self.path.parent).lower()
+            for proc in psutil.process_iter(["pid", "name", "cmdline", "exe"]):
+                try:
+                    name = (proc.info.get("name") or "").lower()
+                    if "dnplayer" in name:
+                        exe_path = str(proc.info.get("exe") or "").lower()
+                        cmdline = proc.info.get("cmdline") or []
+                        if base_dir and exe_path and not exe_path.startswith(base_dir):
+                            continue
+                        for arg in cmdline:
+                            m = re.search(r"index=(\d+)", arg)
+                            if m:
+                                running[int(m.group(1))] = proc.info["pid"]
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+        except Exception as exc:
+            self.logger.warning("Không thể quét tiến trình dnplayer: %s", exc)
+        return running
+
     def list_instances(self) -> list[Instance]:
         console_instances = parse_list2(self._run("list2").stdout)
         config_instances = self._list_instances_from_config()
-        merged = {item.index: item for item in config_instances}
+        merged: dict[int, Instance] = {item.index: item for item in config_instances}
         merged.update({item.index: item for item in console_instances})
+
+        # Process inspection: check if any instance is running in OS even if list2 missed it
+        running_processes = self._detect_running_processes()
+        for idx, pid in running_processes.items():
+            if idx in merged:
+                current = merged[idx]
+                merged[idx] = Instance(
+                    index=current.index,
+                    name=current.name,
+                    running=True,
+                    top_window_handle=current.top_window_handle,
+                    bind_window_handle=current.bind_window_handle,
+                    process_id=pid,
+                    vbox_process_id=current.vbox_process_id,
+                    width=current.width,
+                    height=current.height,
+                    dpi=current.dpi,
+                )
+            else:
+                merged[idx] = Instance(
+                    index=idx,
+                    name=f"LDPlayer-{idx}",
+                    running=True,
+                    process_id=pid,
+                )
+
         instances = sorted(merged.values(), key=lambda item: item.index)
         self.logger.info(
-            "LDPlayer instances: config=%d, list2=%d, merged=%d",
+            "LDPlayer instances: config=%d, list2=%d, proc=%d, merged=%d",
             len(config_instances),
             len(console_instances),
+            len(running_processes),
             len(instances),
         )
         return instances

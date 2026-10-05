@@ -49,6 +49,8 @@ class CompatApp(tk.Tk):
         self.adb_devices: list[ADBDevice] = []
         self.device_serials_by_name: dict[str, str] = {}
         self.package_suggestions: list[str] = []
+        self.raw_packages: list[AndroidPackage] = []
+        self.last_package_action: str = "analyze"
 
         self._configure_style()
         self._build_ui()
@@ -294,6 +296,7 @@ class CompatApp(tk.Tk):
         self.dpi_var = tk.IntVar(value=240)
         self.fps_var = tk.StringVar(value="20")
         self.animation_var = tk.BooleanVar(value=False)
+        self.audio_var = tk.BooleanVar(value=True)
         self.memory_var = tk.BooleanVar(value=False)
         self.priority_var = tk.StringVar(value="normal")
         fields = ttk.Frame(frame, padding=(18, 14), style="Card.TFrame")
@@ -308,14 +311,18 @@ class CompatApp(tk.Tk):
         self._combo_row(fields, 7, "Ưu tiên", self.priority_var, ["normal", "below_normal", "idle"])
         ttk.Checkbutton(fields, text="Giữ hiệu ứng Android", variable=self.animation_var,
                         style="Card.TCheckbutton").grid(row=8, column=0, columnspan=2, sticky="w", pady=4)
-        ttk.Checkbutton(fields, text="Tối ưu RAM/GPU đa phiên", variable=self.memory_var,
+        ttk.Checkbutton(fields, text="Bật âm thanh (khuyến nghị giữ để tránh lỗi văng game)", variable=self.audio_var,
                         style="Card.TCheckbutton").grid(row=9, column=0, columnspan=2, sticky="w", pady=4)
+        ttk.Checkbutton(fields, text="Tối ưu RAM/GPU đa phiên", variable=self.memory_var,
+                        style="Card.TCheckbutton").grid(row=10, column=0, columnspan=2, sticky="w", pady=4)
         actions = ttk.Frame(frame)
         actions.grid(row=2, column=0, sticky="w")
         ttk.Button(actions, text="✓  Áp dụng đã chọn", command=lambda: self.apply_profile(False), style="Primary.TButton").pack(side="left", padx=(0, 6))
         ttk.Button(actions, text="⚡  Tối ưu tất cả", command=lambda: self.apply_profile(True)).pack(side="left", padx=6)
+        ttk.Label(frame, text="* Lưu ý chơi game: Nên đặt RAM ≥ 1024MB và giữ âm thanh để game không bị văng do tràn RAM hay thiếu driver âm thanh.",
+                  style="Muted.TLabel").grid(row=3, column=0, sticky="w", pady=(10, 2))
         ttk.Label(frame, text="Cấu hình được tự lưu. Instance đang chạy sẽ được khởi động lại để áp dụng đầy đủ.",
-                  style="Muted.TLabel").grid(row=3, column=0, sticky="w", pady=15)
+                  style="Muted.TLabel").grid(row=4, column=0, sticky="w", pady=(0, 15))
 
     def _build_adb(self) -> None:
         frame = self._tab("ADB")
@@ -343,35 +350,67 @@ class CompatApp(tk.Tk):
 
     def _build_packages(self) -> None:
         frame = self._tab("Ứng dụng")
-        self._page_header(frame, "Ứng dụng Android", "Giữ vn.kvtm.js và rà soát các package có thể vô hiệu hóa.")
+        self._page_header(frame, "Ứng dụng Android", "Quản lý, tìm kiếm và bật / vô hiệu hóa nhanh các package trên thiết bị.")
         controls = ttk.Frame(frame)
-        controls.pack(fill="x", pady=8)
+        controls.pack(fill="x", pady=(4, 6))
         self.package_device = tk.StringVar()
-        self.package_combo = ttk.Combobox(controls, textvariable=self.package_device, state="readonly", width=28)
-        self.package_combo.pack(side="left", padx=3)
+        self.package_combo = ttk.Combobox(controls, textvariable=self.package_device, state="readonly", width=26)
+        self.package_combo.pack(side="left", padx=(0, 4))
         self.target_package = tk.StringVar(value="vn.kvtm.js")
-        ttk.Entry(controls, textvariable=self.target_package, width=26).pack(side="left", padx=3)
-        ttk.Button(controls, text="Phân tích ứng dụng mục tiêu", command=self.analyze_packages,
-                   style="Primary.TButton").pack(side="left", padx=5)
+        ttk.Label(controls, text="Mục tiêu:").pack(side="left", padx=(3, 2))
+        ttk.Entry(controls, textvariable=self.target_package, width=18).pack(side="left", padx=2)
+        ttk.Button(controls, text="Phân tích mục tiêu", command=self.analyze_packages,
+                   style="Primary.TButton").pack(side="left", padx=4)
+        self.package_include_system = tk.BooleanVar(value=True)
+        ttk.Checkbutton(controls, text="Gồm hệ thống", variable=self.package_include_system).pack(side="left", padx=4)
+        ttk.Button(controls, text="⌕ Quét tất cả", command=self.scan_all_packages).pack(side="left", padx=4)
+
+        # Filter and Search Row
+        filter_bar = ttk.Frame(frame)
+        filter_bar.pack(fill="x", pady=(0, 6))
+        ttk.Label(filter_bar, text="Bộ lọc:").pack(side="left", padx=(0, 4))
+        self.package_filter = tk.StringVar(value="Tất cả")
+        filter_combo = ttk.Combobox(
+            filter_bar, textvariable=self.package_filter, state="readonly", width=18,
+            values=["Tất cả", "Đã tắt (Disabled)", "Đang bật (Active)", "Đề xuất tắt", "Người dùng", "Hệ thống"]
+        )
+        filter_combo.pack(side="left", padx=2)
+        filter_combo.bind("<<ComboboxSelected>>", self._apply_package_filter)
+
+        ttk.Label(filter_bar, text="Tìm kiếm:").pack(side="left", padx=(10, 4))
+        self.package_search = tk.StringVar()
+        search_entry = ttk.Entry(filter_bar, textvariable=self.package_search, width=22)
+        search_entry.pack(side="left", padx=2)
+        search_entry.bind("<KeyRelease>", self._apply_package_filter)
+
+        self.package_summary = tk.StringVar(value="Chưa tải package")
+        ttk.Label(filter_bar, textvariable=self.package_summary, style="Muted.TLabel").pack(side="right", padx=(4, 0))
+
         columns = ("pick", "package", "source", "status", "recommendation")
         self.package_tree = ttk.Treeview(frame, columns=columns, show="headings", selectmode="extended")
         for column, text, width in (
-            ("pick", "Chọn", 58),
-            ("package", "Package", 300), ("source", "Loại", 100),
-            ("status", "Trạng thái", 100), ("recommendation", "Đánh giá", 300),
+            ("pick", "Chọn", 48),
+            ("package", "Package", 320), ("source", "Loại", 95),
+            ("status", "Trạng thái", 95), ("recommendation", "Đánh giá", 280),
         ):
             self.package_tree.heading(column, text=text)
             self.package_tree.column(column, width=width, anchor="center" if column == "pick" else "w")
         self.package_tree.bind("<Button-1>", self._toggle_package_check, add="+")
+        self.package_tree.bind("<Double-1>", self._quick_toggle_package_event, add="+")
         self.package_tree.bind("<<TreeviewSelect>>", self._sync_package_checks, add="+")
-        self.package_tree.pack(fill="both", expand=True, pady=8)
+        self.package_tree.pack(fill="both", expand=True, pady=(0, 6))
+
         buttons = ttk.Frame(frame)
         buttons.pack(fill="x")
-        ttk.Button(buttons, text="☑  Chọn đề xuất", command=self.select_suggested_packages).pack(side="left", padx=(0, 3))
-        ttk.Button(buttons, text="☐  Bỏ chọn", command=self.clear_package_selection).pack(side="left", padx=3)
-        ttk.Button(buttons, text="Vô hiệu hóa đã chọn", command=self.disable_packages,
+        ttk.Button(buttons, text="☑ Chọn tất cả", command=self.select_all_packages).pack(side="left", padx=(0, 3))
+        ttk.Button(buttons, text="☑ Chọn đề xuất", command=self.select_suggested_packages).pack(side="left", padx=3)
+        ttk.Button(buttons, text="☐ Bỏ chọn", command=self.clear_package_selection).pack(side="left", padx=3)
+        ttk.Button(buttons, text="⚡ Bật/Tắt nhanh", command=self.quick_toggle_selected,
+                   style="Primary.TButton").pack(side="left", padx=3)
+        ttk.Button(buttons, text="🔴 Vô hiệu hóa đã chọn", command=self.disable_packages,
                    style="Danger.TButton").pack(side="left", padx=3)
-        ttk.Button(buttons, text="Bật lại đã chọn", command=self.enable_packages).pack(side="left", padx=3)
+        ttk.Button(buttons, text="🟢 Bật lại đã chọn", command=self.enable_packages).pack(side="left", padx=3)
+        ttk.Button(buttons, text="🟢 Bật TẤT CẢ đã tắt", command=self.enable_all_disabled).pack(side="left", padx=3)
         ttk.Button(buttons, text="Khôi phục backup", command=self.restore_packages).pack(side="left", padx=3)
 
     def _build_settings(self) -> None:
@@ -476,13 +515,14 @@ class CompatApp(tk.Tk):
         self.cpu_var.set(profile.cpu); self.ram_var.set(str(profile.ram))
         self.width_var.set(profile.width); self.height_var.set(profile.height); self.dpi_var.set(profile.dpi)
         self.fps_var.set(str(profile.fps)); self.animation_var.set(profile.animation)
+        self.audio_var.set(profile.audio)
         self.memory_var.set(profile.memory_optimization); self.priority_var.set(profile.process_priority)
 
     def _current_profile(self) -> OptimizationProfile:
         profile = OptimizationProfile(
             cpu=self.cpu_var.get(), ram=int(self.ram_var.get()), width=self.width_var.get(),
             height=self.height_var.get(), dpi=self.dpi_var.get(), fps=int(self.fps_var.get()),
-            animation=self.animation_var.get(), audio=False,
+            animation=self.animation_var.get(), audio=self.audio_var.get(),
             memory_optimization=self.memory_var.get(), process_priority=self.priority_var.get(),
         )
         profile.validate()
@@ -643,18 +683,69 @@ class CompatApp(tk.Tk):
         if self.adb and serial:
             self._run_async("Đang chụp màn hình…", lambda: self.adb.screenshot(serial), lambda path: self.adb_output.insert("end", f"Đã lưu: {path}\n"))
 
+    def scan_all_packages(self) -> None:
+        serial = self._require_selected_serial(self.package_device, "Ứng dụng")
+        if not self.package_manager or not serial: return
+        self.last_package_action = "scan"
+        inc_sys = self.package_include_system.get()
+        self._run_async("Đang quét tất cả package…", lambda: self.package_manager.scan(serial, include_system=inc_sys), self._set_packages_data)
+
     def analyze_packages(self) -> None:
         serial = self._require_selected_serial(self.package_device, "Ứng dụng")
         if not self.package_manager or not serial: return
-        def done(packages: list[AndroidPackage]) -> None:
-            self.package_tree.delete(*self.package_tree.get_children()); suggested=[]
-            for p in packages:
-                self.package_tree.insert("", "end", iid=p.name, values=("☐", p.name, p.source, "Đã tắt" if p.disabled else "Đang bật", p.recommendation))
-                if p.review_suggested and not p.disabled: suggested.append(p.name)
-            self.package_suggestions = suggested
-            self.package_tree.selection_set(suggested)
+        self.last_package_action = "analyze"
+        target = self.target_package.get().strip()
+        self._run_async(f"Đang phân tích {target}…", lambda: self.package_manager.analyze_for_target(serial, target), self._set_packages_data)
+
+    def _set_packages_data(self, packages: list[AndroidPackage]) -> None:
+        self.raw_packages = packages
+        self.package_suggestions = [p.name for p in packages if p.review_suggested and not p.disabled and not p.protected]
+        self._render_filtered_packages()
+        if self.last_package_action == "analyze" and self.package_suggestions:
+            visible_suggestions = [p for p in self.package_suggestions if self.package_tree.exists(p)]
+            self.package_tree.selection_set(visible_suggestions)
             self._sync_package_checks()
-        self._run_async("Đang phân tích package…", lambda: self.package_manager.analyze_for_target(serial, self.target_package.get()), done)
+
+    def _apply_package_filter(self, _event: Any = None) -> None:
+        self._render_filtered_packages()
+
+    def _render_filtered_packages(self) -> None:
+        mode = self.package_filter.get()
+        search = self.package_search.get().strip().lower()
+        selected = set(self.package_tree.selection())
+
+        self.package_tree.delete(*self.package_tree.get_children())
+        visible_count = 0
+        disabled_count = 0
+
+        for p in self.raw_packages:
+            if p.disabled:
+                disabled_count += 1
+            if mode == "Đã tắt (Disabled)" and not p.disabled:
+                continue
+            if mode == "Đang bật (Active)" and p.disabled:
+                continue
+            if mode == "Đề xuất tắt" and (not p.review_suggested or p.disabled):
+                continue
+            if mode == "Người dùng" and p.source != "Người dùng":
+                continue
+            if mode == "Hệ thống" and p.source != "Hệ thống":
+                continue
+            if search and search not in p.name.lower():
+                continue
+
+            visible_count += 1
+            status_text = "Đã tắt" if p.disabled else "Đang bật"
+            self.package_tree.insert(
+                "", "end", iid=p.name,
+                values=("☐", p.name, p.source, status_text, p.recommendation)
+            )
+
+        restore_sel = [name for name in selected if self.package_tree.exists(name)]
+        if restore_sel:
+            self.package_tree.selection_set(restore_sel)
+        self._sync_package_checks()
+        self.package_summary.set(f"Hiển thị {visible_count}/{len(self.raw_packages)}  ·  Đã tắt: {disabled_count}")
 
     def _toggle_package_check(self, event: tk.Event) -> str | None:
         if self.package_tree.identify_region(event.x, event.y) != "cell":
@@ -680,8 +771,14 @@ class CompatApp(tk.Tk):
                 values[0] = "☑" if item in selected else "☐"
                 self.package_tree.item(item, values=values)
 
+    def select_all_packages(self) -> None:
+        visible = self.package_tree.get_children()
+        self.package_tree.selection_set(visible)
+        self._sync_package_checks()
+
     def select_suggested_packages(self) -> None:
-        self.package_tree.selection_set(self.package_suggestions)
+        visible = [p for p in self.package_suggestions if self.package_tree.exists(p)]
+        self.package_tree.selection_set(visible)
         self._sync_package_checks()
 
     def clear_package_selection(self) -> None:
@@ -693,21 +790,81 @@ class CompatApp(tk.Tk):
     def _selected_packages(self) -> list[str]:
         return list(self.package_tree.selection())
 
+    def _refresh_current_packages(self) -> None:
+        if self.last_package_action == "scan":
+            self.scan_all_packages()
+        else:
+            self.analyze_packages()
+
+    def quick_toggle_selected(self) -> None:
+        packages = self._selected_packages()
+        serial = self._require_selected_serial(self.package_device, "Ứng dụng")
+        if not self.package_manager or not packages or not serial: return
+        pkg_map = {p.name: p for p in self.raw_packages}
+        to_enable = [name for name in packages if pkg_map.get(name) and pkg_map[name].disabled]
+        to_disable = [name for name in packages if pkg_map.get(name) and not pkg_map[name].disabled]
+
+        protected = [name for name in to_disable if pkg_map.get(name) and pkg_map[name].protected]
+        if protected:
+            messagebox.showwarning("Ứng dụng", f"Không thể vô hiệu hóa package được bảo vệ:\n" + "\n".join(protected))
+            to_disable = [name for name in to_disable if name not in protected]
+
+        if not to_enable and not to_disable:
+            messagebox.showinfo("Ứng dụng", "Không có thay đổi nào cần thực hiện.")
+            return
+
+        def execute() -> None:
+            if to_enable:
+                self.package_manager.enable(serial, to_enable)
+            if to_disable:
+                self.package_manager.disable(serial, to_disable)
+
+        self._run_async("Đang chuyển đổi trạng thái…", execute, lambda _: self._refresh_current_packages())
+
+    def _quick_toggle_package_event(self, event: tk.Event) -> str | None:
+        if self.package_tree.identify_region(event.x, event.y) != "cell":
+            return None
+        item = self.package_tree.identify_row(event.y)
+        if not item: return None
+        serial = self._require_selected_serial(self.package_device, "Ứng dụng")
+        if not self.package_manager or not serial: return None
+        pkg_map = {p.name: p for p in self.raw_packages}
+        pkg = pkg_map.get(item)
+        if not pkg: return None
+        if pkg.disabled:
+            self._run_async(f"Đang bật {pkg.name}…", lambda: self.package_manager.enable(serial, [pkg.name]), lambda _: self._refresh_current_packages())
+        else:
+            if pkg.protected:
+                messagebox.showwarning("Ứng dụng", f"'{pkg.name}' là dịch vụ cốt lõi và đang được bảo vệ, không thể tắt.")
+                return "break"
+            self._run_async(f"Đang tắt {pkg.name}…", lambda: self.package_manager.disable(serial, [pkg.name]), lambda _: self._refresh_current_packages())
+        return "break"
+
+    def enable_all_disabled(self) -> None:
+        serial = self._require_selected_serial(self.package_device, "Ứng dụng")
+        if not self.package_manager or not serial: return
+        disabled = [p.name for p in self.raw_packages if p.disabled]
+        if not disabled:
+            messagebox.showinfo("Ứng dụng", "Không có package nào đang bị tắt."); return
+        if not messagebox.askyesno("Ứng dụng", f"Bật lại toàn bộ {len(disabled)} package đang bị tắt trên {serial}?"): return
+        self._run_async("Đang bật lại tất cả…", lambda: self.package_manager.enable(serial, disabled), lambda _: self._refresh_current_packages())
+
     def disable_packages(self) -> None:
-        packages=self._selected_packages(); serial=self._require_selected_serial(self.package_device, "Ứng dụng")
-        if not self.package_manager or not packages: return
+        packages = self._selected_packages(); serial = self._require_selected_serial(self.package_device, "Ứng dụng")
+        if not self.package_manager or not packages or not serial: return
         if not messagebox.askyesno("Ứng dụng", f"Vô hiệu hóa {len(packages)} package? Manager sẽ tạo backup."): return
-        self._run_async("Đang vô hiệu hóa…", lambda: self.package_manager.disable(serial, packages), lambda _: self.analyze_packages())
+        self._run_async("Đang vô hiệu hóa…", lambda: self.package_manager.disable(serial, packages), lambda _: self._refresh_current_packages())
 
     def enable_packages(self) -> None:
-        packages=self._selected_packages(); serial=self._require_selected_serial(self.package_device, "Ứng dụng")
-        if self.package_manager and packages:
-            self._run_async("Đang bật lại…", lambda: self.package_manager.enable(serial, packages), lambda _: self.analyze_packages())
+        packages = self._selected_packages(); serial = self._require_selected_serial(self.package_device, "Ứng dụng")
+        if self.package_manager and packages and serial:
+            self._run_async("Đang bật lại…", lambda: self.package_manager.enable(serial, packages), lambda _: self._refresh_current_packages())
 
     def restore_packages(self) -> None:
         if not self.package_manager: return
-        path=filedialog.askopenfilename(filetypes=[("JSON", "*.json")])
-        if path: self._run_async("Đang khôi phục…", lambda: self.package_manager.restore(path), lambda _: messagebox.showinfo("Ứng dụng", "Đã khôi phục trạng thái package."))
+        path = filedialog.askopenfilename(filetypes=[("JSON", "*.json")])
+        if path:
+            self._run_async("Đang khôi phục…", lambda: self.package_manager.restore(path), lambda _: (messagebox.showinfo("Ứng dụng", "Đã khôi phục trạng thái package."), self._refresh_current_packages()))
 
     def _close(self) -> None:
         self._save_profile()
